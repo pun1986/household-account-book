@@ -2,7 +2,6 @@ const aws = require('aws-sdk');
 var dynamo = new aws.DynamoDB.DocumentClient ({
     region: 'ap-northeast-1'
 });
-const LINE_TOKEN = 'bjDDPJwR/Cf+MPwZwnwHJtWNvV0BrgQNiOlSiiLbYUqZCmRTjkuCq9BW5fMDOy0uYi5KiNjVm9YFqM7vO3DsHVy36hbwtTWE/funtBg7I10ZxMSqpB/cjjYkfs8KMzA8648HscFQDpKgM3euHuYaKwdB04t89/1O/w1cDnyilFU=';
 const date = new Date();
 const createAt = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate() + " " + (date.getHours()) + ":"+date.getMinutes() + ":" + date.getSeconds();
 const today = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate();
