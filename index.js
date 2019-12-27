@@ -28,6 +28,11 @@ exports.handler = (event, context) => {
         context.succeed(createResponse(200, 'Completed successfully !!'));
         console.log("Success: Response completed successfully !!");
     } else {
+        if (reqText === "ありがとう") {
+            replyText(repToken, "これくら全然いいよ♪").then(() => {
+                context.succeed(createResponse(200, 'Completed successfully'));
+            })
+        }
         if (reqText === "今月" || reqText === "今日") {
             getTotalAmount(botid, reqText).then((total) => {
                 replyText(repToken, reqText + "は" + total + "円").then(() => {
