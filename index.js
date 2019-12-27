@@ -2,6 +2,7 @@ const aws = require('aws-sdk');
 var dynamo = new aws.DynamoDB.DocumentClient ({
     region: 'ap-northeast-1'
 });
+const LINE_TOKEN = process.env['LINE_TOKEN'];
 const date = new Date();
 const createAt = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate() + " " + (date.getHours()) + ":"+date.getMinutes() + ":" + date.getSeconds();
 const today = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate();
