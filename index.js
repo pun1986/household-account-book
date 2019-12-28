@@ -3,9 +3,6 @@ var dynamo = new aws.DynamoDB.DocumentClient ({
     region: 'ap-northeast-1'
 });
 const LINE_TOKEN = process.env['LINE_TOKEN'];
-const date = new Date();
-const createAt = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate() + " " + (date.getHours()) + ":"+date.getMinutes() + ":" + date.getSeconds();
-const today = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate();
 
 const createResponse = (statusCode, body) => {
     return {
@@ -28,8 +25,8 @@ exports.handler = (event, context) => {
         context.succeed(createResponse(200, 'Completed successfully !!'));
         console.log("Success: Response completed successfully !!");
     } else {
-        if (reqText === "ありがとう") {
-            replyText(repToken, "これくら全然いいよ♪").then(() => {
+        if (reqText.match(/ありがと/)) {
+            replyText(repToken, "これくらい全然いいよ♪").then(() => {
                 context.succeed(createResponse(200, 'Completed successfully'));
             })
         }
@@ -40,7 +37,7 @@ exports.handler = (event, context) => {
                 });
             })
         } else {
-            getIncompleteItems().then((items) => {
+            getIncompleteItems(botid).then((items) => {
                 if (items.length == 0) {
                     if (isNaN(reqText)) {
                         replyText(repToken, "「" + reqText + "」じゃいくら使ったかわからん。ちゃんと教えてくれん？").then(() => {
@@ -116,18 +113,23 @@ function replyText(repToken, res) {
     });
 }
 
-function getIncompleteItems() {
+function getIncompleteItems(userId) {
+    const date = new Date();
+    const today = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate();
+
     return new Promise((resolve, reject) => {
         const param = {
             TableName: "cost",
-            FilterExpression: "begins_with(#createAt, :d) and #isComplete = :c",
+            FilterExpression: "begins_with(#createAt, :d) and #isComplete = :c and #userId = :u",
             ExpressionAttributeNames: {
                 "#createAt": "createAt",
-                "#isComplete": "isComplete"
+                "#isComplete": "isComplete",
+                "#userId": "userId"
             },
             ExpressionAttributeValues: {
                 ":d": today,
-                ":c": false
+                ":c": false,
+                ":u": userId
             }
         };
         dynamo.scan(param, (err,data) => {
@@ -166,6 +168,10 @@ function getNewSeq(seqName) {
 }
 
 function registerAmount(id, userId, amount) {
+    const date = new Date();
+    const createAt = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate() + " " + (date.getHours()) + ":"+date.getMinutes() + ":" + date.getSeconds();
+    const today = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate();
+
     return new Promise((resolve, reject) => {
         dynamo.put({
          "TableName": "cost",
