@@ -28,14 +28,14 @@ exports.handler = (event, context) => {
         if (reqText.match(/ありがと/)) {
             replyText(repToken, "これくらい全然いいよ♪").then(() => {
                 context.succeed(createResponse(200, 'Completed successfully'));
-            })
+            });
         }
-        if (reqText === "今月" || reqText === "今日") {
+        if (reqText === "今月" || reqText === "今日" || reqText == "先月") {
             getTotalAmount(botid, reqText).then((total) => {
                 replyText(repToken, reqText + "は" + total + "円").then(() => {
                     context.succeed(createResponse(200, 'Completed successfully'));
                 });
-            })
+            });
         } else {
             getIncompleteItems(botid).then((items) => {
                 if (items.length == 0) {
@@ -230,10 +230,16 @@ function getTotalAmount(userId, reqText) {
         switch (reqText) {
             case "今日":
                 date = today.getFullYear() + "-" + (today.getMonth() + 1) + "-" + today.getDate();
+                break;
             case "今月":
                 date = today.getFullYear() + "-" + (today.getMonth() + 1);
+                break;
+            case "先月":
+                date = today.getFullYear() + "-" + (today.getMonth());
+                break;
             default:
-                date = today.getFullYear() + "-" + (today.getMonth() + 1) + "-" + today.getDate();
+                date = today.getFullYear() + "-" + (today.getMonth() + 1);
+                break;
         }
         const param = {
             TableName: "cost",
@@ -247,15 +253,16 @@ function getTotalAmount(userId, reqText) {
                 ":date": date
             }
         };
+        console.log("今月", param);
         dynamo.scan(param, (err, data) => {
             if (err) {
                 console.log("Fail Scan", JSON.stringify(err, null, 2));
             } else {
+                console.log("total", data.Items.length);
                 let total = 0;
                 data.Items.forEach((item) => {
                     total += Number(item.purpose.amount);
                 });
-                console.log("total", total);
                 resolve(total);
             }
         });
