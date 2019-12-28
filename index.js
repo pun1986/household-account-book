@@ -21,10 +21,12 @@ exports.handler = (event, context) => {
     const reqText = event.events[0].message.text;
     const repToken = event.events[0].replyToken;
     
+    // LINEコンソールからの検証用
     if (repToken == '00000000000000000000000000000000') {
         context.succeed(createResponse(200, 'Completed successfully !!'));
         console.log("Success: Response completed successfully !!");
     } else {
+        // 通常利用時処理
         if (reqText.match(/ありがと/)) {
             replyText(repToken, "これくらい全然いいよ♪").then(() => {
                 context.succeed(createResponse(200, 'Completed successfully'));
@@ -60,12 +62,19 @@ exports.handler = (event, context) => {
                             context.succeed(createResponse(200, 'Completed successfully'));
                         });
                     } else {
-                        updateAndregisterKind(items[0].id, reqText).then((kind) => {
-                            return replyText(repToken, "「" + kind + "」ね。分かった。登録したよ！");
-                        })
-                        .then(() => {
-                            context.done(null);
-                        });
+                        if (reqText === "キャンセル") {
+                            cancelDelete(items[0].id).then(() => {
+                                return replyText(repToken, "キャンセルしたよ〜");
+                            }).then(() => {
+                                context.done(null);
+                            });
+                        } else {
+                            updateAndregisterKind(items[0].id, reqText).then((kind) => {
+                                return replyText(repToken, "「" + kind + "」ね。分かった。登録したよ！");
+                            }).then(() => {
+                                context.done(null);
+                            });
+                        }
                     } 
                 } else {
                     replyText(repToken, "まだ用途を言ってないものあるよね？").then(() => {
@@ -81,6 +90,7 @@ exports.handler = (event, context) => {
     }
 };
 
+// 返信処理
 function replyText(repToken, res) {
     return new Promise((resolve, reject) => {
         const request = require('request');
@@ -113,6 +123,7 @@ function replyText(repToken, res) {
     });
 }
 
+//　用途未登録の項目を取得
 function getIncompleteItems(userId) {
     const date = new Date();
     const today = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate();
@@ -142,6 +153,7 @@ function getIncompleteItems(userId) {
     });
 }
 
+// シーケンス番号のアトミックカウンタ
 function getNewSeq(seqName) {
     return  new Promise((resolve, reject) => {
         const params = {
@@ -167,6 +179,7 @@ function getNewSeq(seqName) {
     });
 }
 
+// 金額登録
 function registerAmount(id, userId, amount) {
     const date = new Date();
     const createAt = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate() + " " + (date.getHours()) + ":"+date.getMinutes() + ":" + date.getSeconds();
@@ -195,6 +208,7 @@ function registerAmount(id, userId, amount) {
     });
 }
 
+// 用途登録の更新処理
 function updateAndregisterKind(id, kind) {
 
     return new Promise((resolve, reject) => {
@@ -222,6 +236,32 @@ function updateAndregisterKind(id, kind) {
     });
 }
 
+// キャンセルによる項目削除
+function cancelDelete(id) {
+
+    return new Promise((resolve, reject) => {
+        const param = {
+            TableName: "cost",
+            Key: {
+                "id": id
+            },
+            ConditionExpression: "isComplete = :c",
+            ExpressionAttributeValues: {
+                ":c": false
+            }
+        };
+        dynamo.delete(param, (err, data) => {
+            if (err) {
+                console.error(console.log("Unable to delete item. Error JSON:", JSON.stringify(err, null, 2)));
+            } else {
+                console.log("DeleteItem succeeded:", JSON.stringify(data, null, 2));
+                resolve();
+            }
+        })
+    });
+}
+
+// リクエストされた期間の合計金額取得
 function getTotalAmount(userId, reqText) {
     
     return new Promise((resolve, reject) => {
