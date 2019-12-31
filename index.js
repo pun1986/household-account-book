@@ -2,6 +2,7 @@ const aws = require('aws-sdk');
 var dynamo = new aws.DynamoDB.DocumentClient ({
     region: 'ap-northeast-1'
 });
+const houseHold = "HouseHold";
 const LINE_TOKEN = process.env['LINE_TOKEN'];
 
 const createResponse = (statusCode, body) => {
@@ -16,10 +17,15 @@ const createResponse = (statusCode, body) => {
 
 exports.handler = (event, context) => {
     console.log(event);
+    console.log(event.events[0].message.id);
+    console.log(event.events[0].source);
+    console.log("event", event.events[0]);
     
     const botid = event.destination;
     const reqText = event.events[0].message.text;
     const repToken = event.events[0].replyToken;
+    const userId = event.events[0].source.userId;
+    const messageId = event.events[0].message.id;
     
     // LINEコンソールからの検証用
     if (repToken == '00000000000000000000000000000000') {
@@ -31,26 +37,26 @@ exports.handler = (event, context) => {
             replyText(repToken, "これくらい全然いいよ♪").then(() => {
                 context.succeed(createResponse(200, 'Completed successfully'));
             });
-        }
-        if (reqText === "今月" || reqText === "今日" || reqText == "先月") {
-            getTotalAmount(botid, reqText).then((total) => {
-                replyText(repToken, reqText + "は" + total + "円").then(() => {
+        } else if (reqText === "今月" || reqText === "今日" || reqText == "先月") {
+            getTotalAmount(userId, reqText).then((total) => {
+                let totalText = total.term + "は" + total.totalAmount + "円\n\n";
+                total.purpose.forEach((item) => {
+                    totalText += item.kind + " : " + item.amount + "円\n";
+                });
+                replyText(repToken, totalText).then(() => {
                     context.succeed(createResponse(200, 'Completed successfully'));
                 });
             });
         } else {
-            getIncompleteItems(botid).then((items) => {
+            getIncompleteItems(userId, messageId).then((items) => {
                 if (items.length == 0) {
                     if (isNaN(reqText)) {
                         replyText(repToken, "「" + reqText + "」じゃいくら使ったかわからん。ちゃんと教えてくれん？").then(() => {
                             context.succeed(createResponse(200, 'Completed successfully'));
                         });
                     } else {
-                        getNewSeq("cost").then((id) => {
-                            return registerAmount(id, botid, reqText);
-                        })
-                        .then((amount) => {
-                            return replyText(repToken, amount + "円ね。で、ちなみに何に使ったん？");
+                        registerAmount(userId, messageId, reqText).then(() => {
+                            return replyText(repToken, reqText + "円ね。で、ちなみに何に使ったん？");
                         })
                         .then(() => {
                             context.succeed(createResponse(200, 'Completed successfully'));
@@ -63,13 +69,13 @@ exports.handler = (event, context) => {
                         });
                     } else {
                         if (reqText === "キャンセル") {
-                            cancelDelete(items[0].id).then(() => {
+                            cancel(userId, items[0].messageId).then(() => {
                                 return replyText(repToken, "キャンセルしたよ〜");
                             }).then(() => {
                                 context.done(null);
                             });
                         } else {
-                            updateAndregisterKind(items[0].id, reqText).then((kind) => {
+                            updateAndregisterKind(userId, items[0].messageId, reqText).then((kind) => {
                                 return replyText(repToken, "「" + kind + "」ね。分かった。登録したよ！");
                             }).then(() => {
                                 context.done(null);
@@ -123,109 +129,87 @@ function replyText(repToken, res) {
     });
 }
 
-//　用途未登録の項目を取得
+//用途未登録の項目を取得
 function getIncompleteItems(userId) {
-    const date = new Date();
-    const today = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate();
 
     return new Promise((resolve, reject) => {
         const param = {
-            TableName: "cost",
-            FilterExpression: "begins_with(#createAt, :d) and #isComplete = :c and #userId = :u",
+            TableName: houseHold,
+            IndexName: "isCompleteIndex",
+            ConsistentRead: false,
+            KeyConditionExpression: "#userId = :userId and #isComplete = :isComplete",
+            FilterExpression: "#hasCancel = :hasCancel",
             ExpressionAttributeNames: {
-                "#createAt": "createAt",
+                "#userId": "userId",
                 "#isComplete": "isComplete",
-                "#userId": "userId"
+                "#hasCancel": "hasCancel"
             },
             ExpressionAttributeValues: {
-                ":d": today,
-                ":c": false,
-                ":u": userId
+                ":userId": userId,
+                ":isComplete": 0,
+                ":hasCancel": 0
             }
         };
-        dynamo.scan(param, (err,data) => {
-            if(err) {
-                console.log("Fail Scan", JSON.stringify(err, null, 2));
+        dynamo.query(param, (err, data) => {
+            if (err) {
+                console.error(console.log("Unable to query item. Error JSON:", JSON.stringify(err, null, 2)));
+                reject();
             } else {
+                console.log("QueryItem Succeed:", JSON.stringify(data, null, 2));
                 resolve(data.Items);
             }
         });
     });
 }
 
-// シーケンス番号のアトミックカウンタ
-function getNewSeq(seqName) {
-    return  new Promise((resolve, reject) => {
-        const params = {
-            TableName: "sequences",
-            Key: {
-                name: seqName
-            },
-            UpdateExpression: "set currentNumber = currentNumber + :val",
-            ExpressionAttributeValues: {
-                ":val": 1
-            },
-            ReturnValues: "UPDATED_NEW"
-        };
-        dynamo.update(params, (err, data) => {
-            if (err) {
-                console.error('Unable to update item. Error JSON:', JSON.stringify(err, null, 2));
-                reject(err);
-            } else {
-                console.log('UpdateItem succeeded:', JSON.stringify(data, null, 2));
-                resolve(data.Attributes.currentNumber);
-            }
-        });
-    });
-}
-
 // 金額登録
-function registerAmount(id, userId, amount) {
+function registerAmount(userId, messageId, reqText) {
     const date = new Date();
-    const createAt = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate() + " " + (date.getHours()) + ":"+date.getMinutes() + ":" + date.getSeconds();
-    const today = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" + date.getDate();
+    const createAt = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" 
+                        + date.getDate() + " " + (date.getHours()) + ":"+date.getMinutes() + ":" + date.getSeconds();
 
     return new Promise((resolve, reject) => {
         dynamo.put({
-         "TableName": "cost",
+         "TableName": houseHold,
          "Item": {
-            "id": id,
             "userId": userId,
+            "messageId": messageId,
             "createAt": createAt,
-            "date": today,
+            "isComplete": 0,
+            "hasCancel": 0,
             "purpose": {
-                "amount": amount
-            },
-            "isComplete": false
+                "amount": reqText
+            }
          }
     }, (err, data) => {
-            if(!err) {
-                resolve(amount);
-            } else {
+            if(err) {
                 console.log("dynamo_err:", err);
+            } else {
+                resolve();
             }
         });
     });
 }
 
 // 用途登録の更新処理
-function updateAndregisterKind(id, kind) {
+function updateAndregisterKind(userId, messageId, kind) {
 
     return new Promise((resolve, reject) => {
-        const params = {
-            TableName: "cost",
+        const param = {
+            TableName: houseHold,
             Key: {
-                "id": id,
+                "userId": userId,
+                "messageId": messageId
             },
-            UpdateExpression: "set isComplete = :c, purpose.kind = :k",
+            UpdateExpression: "set isComplete = :isComplete, purpose.kind = :kind",
             ExpressionAttributeValues: {
-                ":c": true,
-                ":k": kind
+                ":isComplete": 1,
+                ":kind": kind
             },
             ReturnValues:"UPDATED_NEW"
         };
         console.log("Updating the item...");
-        dynamo.update(params, (err, data) => {
+        dynamo.update(param, (err, data) => {
             if (err) {
                 console.error(console.log("Unable to update item. Error JSON:", JSON.stringify(err, null, 2)));
             } else {
@@ -237,33 +221,35 @@ function updateAndregisterKind(id, kind) {
 }
 
 // キャンセルによる項目削除
-function cancelDelete(id) {
-
+function cancel(userId, messageId) {
     return new Promise((resolve, reject) => {
         const param = {
-            TableName: "cost",
+            TableName: houseHold,
             Key: {
-                "id": id
+                "userId": userId,
+                "messageId": messageId
             },
-            ConditionExpression: "isComplete = :c",
+            UpdateExpression: "set isComplete = :isComplete, hasCancel = :hasCancel",
             ExpressionAttributeValues: {
-                ":c": false
-            }
+                ":isComplete": 1,
+                ":hasCancel": 1
+            },
+            ReturnValues: "UPDATED_NEW"
         };
-        dynamo.delete(param, (err, data) => {
+        console.log("Updating the item...");
+        dynamo.update(param, (err, data) => {
             if (err) {
-                console.error(console.log("Unable to delete item. Error JSON:", JSON.stringify(err, null, 2)));
+                console.error(console.log("Unable to update item. Error JSON:", JSON.stringify(err, null, 2)));
+                reject();
             } else {
-                console.log("DeleteItem succeeded:", JSON.stringify(data, null, 2));
+                console.log("UpdateItem succeeded:", JSON.stringify(data, null, 2));
                 resolve();
             }
-        })
+        });
     });
 }
 
-// リクエストされた期間の合計金額取得
 function getTotalAmount(userId, reqText) {
-    
     return new Promise((resolve, reject) => {
         let date = "";
         const today = new Date();
@@ -282,34 +268,46 @@ function getTotalAmount(userId, reqText) {
                 break;
         }
         const param = {
-            TableName: "cost",
-            FilterExpression: "#userId = :userId and begins_with(#date, :date)",
+            TableName: houseHold,
+            IndexName: "createAtIndex",
+            ConsistentRead: false,
+            KeyConditionExpression: "#userId = :userId and begins_with(#createAt, :createAt)",
+            FilterExpression: "#isComplete = :isComplete and #hasCancel = :hasCancel",
             ExpressionAttributeNames: {
                 "#userId": "userId",
-                "#date": "date"
+                "#createAt": "createAt",
+                "#isComplete": "isComplete",
+                "#hasCancel": "hasCancel"
             },
             ExpressionAttributeValues: {
                 ":userId": userId,
-                ":date": date
+                ":createAt": date,
+                ":isComplete": 1,
+                ":hasCancel": 0
             }
         };
-        console.log("今月", param);
-        dynamo.scan(param, (err, data) => {
+        dynamo.query(param, (err, data) => {
             if (err) {
-                console.log("Fail Scan", JSON.stringify(err, null, 2));
+                console.error(console.log("Unable to query item. Error JSON:", JSON.stringify(err, null, 2)));
+                reject();
             } else {
-                console.log("total", data.Items.length);
-                let total = 0;
+                let total = {
+                    term: date,
+                    totalAmount: 0,
+                    purpose: []
+                };
                 data.Items.forEach((item) => {
-                    total += Number(item.purpose.amount);
+                    total.totalAmount += Number(item.purpose.amount);
+                    total.purpose.push({
+                        amount: item.purpose.amount,
+                        kind: item.purpose.kind
+                    });
                 });
                 resolve(total);
             }
         });
     });
 }
-
-
 /*
 function replyPostBackAction(repToken) {
     return new Promise((resolve, reject) => {
