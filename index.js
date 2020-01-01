@@ -2,6 +2,7 @@ const aws = require('aws-sdk');
 var dynamo = new aws.DynamoDB.DocumentClient ({
     region: 'ap-northeast-1'
 });
+const dateUtils = require('date-utils');
 const houseHold = "HouseHold";
 const LINE_TOKEN = process.env['LINE_TOKEN'];
 const BOT_ID = process.env['BOT_ID'];
@@ -41,7 +42,7 @@ exports.handler = (event, context) => {
                 });
             } else if (reqText === "今月" || reqText === "今日" || reqText == "先月") {
                 getTotalAmount(userId, reqText).then((total) => {                   
-                    replyText(repToken, createTotalText(total)).then(() => {
+                    replyText(repToken, createTotalText(total, reqText)).then(() => {
                         context.succeed(createResponse(200, 'Completed successfully'));
                     });
                 });
@@ -98,8 +99,8 @@ exports.handler = (event, context) => {
 };
 
 // 合計金額リストのテキスト生成
-function createTotalText(total) {
-    let totalText = total.term + "は" + total.totalAmount + "円\n\n";
+function createTotalText(total, reqText) {
+    let totalText = reqText + "は" + total.totalAmount + "円\n\n";
     total.purposes.forEach((purpose) => {
         totalText += purpose.kind + " : " + purpose.amount + "円\n";
     });
@@ -179,17 +180,13 @@ function getIncompleteItems(userId) {
 
 // 金額登録
 function registerAmount(userId, messageId, reqText) {
-    const date = new Date();
-    const createAt = date.getFullYear() + "-" + (date.getMonth() + 1) + "-" 
-                        + date.getDate() + " " + (date.getHours()) + ":"+date.getMinutes() + ":" + date.getSeconds();
-
     return new Promise((resolve, reject) => {
         dynamo.put({
          "TableName": houseHold,
          "Item": {
             "userId": userId,
             "messageId": messageId,
-            "createAt": createAt,
+            "createAt": new Date().toFormat("YYYY-MM-DD HH24:MI:SS"),
             "isComplete": 0,
             "hasCancel": 0,
             "purpose": {
@@ -216,10 +213,11 @@ function updateAndregisterKind(userId, messageId, kind) {
                 "userId": userId,
                 "messageId": messageId
             },
-            UpdateExpression: "set isComplete = :isComplete, purpose.kind = :kind",
+            UpdateExpression: "set isComplete = :isComplete, purpose.kind = :kind, createAt = :createAt",
             ExpressionAttributeValues: {
                 ":isComplete": 1,
-                ":kind": kind
+                ":kind": kind,
+                ":createAt": new Date().toFormat("YYYY-MM-DD HH24:MI:SS")
             },
             ReturnValues:"UPDATED_NEW"
         };
@@ -244,10 +242,11 @@ function cancel(userId, messageId) {
                 "userId": userId,
                 "messageId": messageId
             },
-            UpdateExpression: "set isComplete = :isComplete, hasCancel = :hasCancel",
+            UpdateExpression: "set isComplete = :isComplete, hasCancel = :hasCancel, createAt = :createAt",
             ExpressionAttributeValues: {
                 ":isComplete": 1,
-                ":hasCancel": 1
+                ":hasCancel": 1,
+                ":createAt": new Date().toFormat("YYYY-MM-DD HH24:MI:SS")
             },
             ReturnValues: "UPDATED_NEW"
         };
@@ -270,18 +269,21 @@ function getTotalAmount(userId, reqText) {
         const today = new Date();
         switch (reqText) {
             case "今日":
-                date = today.getFullYear() + "-" + (today.getMonth() + 1) + "-" + today.getDate();
+                date = today.toFormat("YYYY-MM-DD");
                 break;
             case "今月":
-                date = today.getFullYear() + "-" + (today.getMonth() + 1);
+                date = today.toFormat("YYYY-MM");
                 break;
             case "先月":
-                date = today.getFullYear() + "-" + (today.getMonth());
+                const month = today.getMonth() + 1;
+                today.setMonth(month - 2);
+                date = today.toFormat("YYYY-MM");
                 break;
             default:
                 date = today.getFullYear() + "-" + (today.getMonth() + 1);
                 break;
         }
+        console.log(date);
         const param = {
             TableName: houseHold,
             IndexName: "createAtIndex",
@@ -315,8 +317,20 @@ function getTotalAmount(userId, reqText) {
                     total.totalAmount += Number(item.purpose.amount);
                     total.purposes.push({
                         amount: item.purpose.amount,
-                        kind: item.purpose.kind
+                        kind: item.purpose.kind,
+                        createAt: item.purpose.createAt
                     });
+                });
+                total.purposes.sort((a, b) => {
+                    if (a.createAt > b.createAt) {
+                        return -1;
+                      }
+                      else if (a.createAt < b.createAt) {
+                        return 1;
+                      }
+                      else {
+                        return 0;
+                      }
                 });
                 resolve(total);
             }
