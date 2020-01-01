@@ -4,6 +4,7 @@ var dynamo = new aws.DynamoDB.DocumentClient ({
 });
 const houseHold = "HouseHold";
 const LINE_TOKEN = process.env['LINE_TOKEN'];
+const BOT_ID = process.env['BOT_ID'];
 
 const createResponse = (statusCode, body) => {
     return {
@@ -17,9 +18,6 @@ const createResponse = (statusCode, body) => {
 
 exports.handler = (event, context) => {
     console.log(event);
-    console.log(event.events[0].message.id);
-    console.log(event.events[0].source);
-    console.log("event", event.events[0]);
     
     const botid = event.destination;
     const reqText = event.events[0].message.text;
@@ -27,74 +25,91 @@ exports.handler = (event, context) => {
     const userId = event.events[0].source.userId;
     const messageId = event.events[0].message.id;
     
-    // LINEコンソールからの検証用
-    if (repToken == '00000000000000000000000000000000') {
-        context.succeed(createResponse(200, 'Completed successfully !!'));
-        console.log("Success: Response completed successfully !!");
+    if (botid !== BOT_ID) {
+        context.done(null);
+        return;
     } else {
-        // 通常利用時処理
-        if (reqText.match(/ありがと/)) {
-            replyText(repToken, "これくらい全然いいよ♪").then(() => {
-                context.succeed(createResponse(200, 'Completed successfully'));
-            });
-        } else if (reqText === "今月" || reqText === "今日" || reqText == "先月") {
-            getTotalAmount(userId, reqText).then((total) => {
-                let totalText = total.term + "は" + total.totalAmount + "円\n\n";
-                total.purpose.forEach((item) => {
-                    totalText += item.kind + " : " + item.amount + "円\n";
-                });
-                replyText(repToken, totalText).then(() => {
+        // LINEコンソールからの検証用
+        if (repToken == '00000000000000000000000000000000') {
+            context.succeed(createResponse(200, 'Completed successfully !!'));
+            console.log("Success: Response completed successfully !!");
+        } else {
+            // 通常利用時処理
+            if (reqText.match(/ありがと/)) {
+                replyText(repToken, "これくらい全然いいよ♪").then(() => {
                     context.succeed(createResponse(200, 'Completed successfully'));
                 });
-            });
-        } else {
-            getIncompleteItems(userId, messageId).then((items) => {
-                if (items.length == 0) {
-                    if (isNaN(reqText)) {
-                        replyText(repToken, "「" + reqText + "」じゃいくら使ったかわからん。ちゃんと教えてくれん？").then(() => {
-                            context.succeed(createResponse(200, 'Completed successfully'));
-                        });
+            } else if (reqText === "今月" || reqText === "今日" || reqText == "先月") {
+                getTotalAmount(userId, reqText).then((total) => {                   
+                    replyText(repToken, createTotalText(total)).then(() => {
+                        context.succeed(createResponse(200, 'Completed successfully'));
+                    });
+                });
+            } else {
+                getIncompleteItems(userId, messageId).then((items) => {
+                    if (items.length == 0) {
+                        if (isNaN(reqText)) {
+                            replyText(repToken, "「" + reqText + "」じゃいくら使ったかわからん。ちゃんと教えてくれん？").then(() => {
+                                context.succeed(createResponse(200, 'Completed successfully'));
+                            });
+                        } else {
+                            registerAmount(userId, messageId, reqText).then(() => {
+                                return replyText(repToken, reqText + "円ね。で、ちなみに何に使ったん？");
+                            })
+                            .then(() => {
+                                context.succeed(createResponse(200, 'Completed successfully'));
+                            });
+                        }
+                    } else if (items.length == 1){
+                        if (!isNaN(reqText)) {
+                            replyText(repToken, "「" + reqText + "」じゃ何に使ったかわからん。ちゃんと教えてくれん？").then(() => {
+                                context.succeed(createResponse(200, 'Completed successfully'));
+                            });
+                        } else {
+                            if (reqText === "キャンセル") {
+                                cancel(userId, items[0].messageId).then(() => {
+                                    return replyText(repToken, "キャンセルしたよ〜");
+                                }).then(() => {
+                                    context.done(null);
+                                });
+                            } else {
+                                updateAndregisterKind(userId, items[0].messageId, reqText).then((kind) => {
+                                    return replyText(repToken, "「" + kind + "」ね。分かった。登録したよ！");
+                                }).then(() => {
+                                    context.done(null);
+                                });
+                            }
+                        } 
                     } else {
-                        registerAmount(userId, messageId, reqText).then(() => {
-                            return replyText(repToken, reqText + "円ね。で、ちなみに何に使ったん？");
-                        })
-                        .then(() => {
+                        replyText(repToken, "まだ用途を言ってないものあるよね？").then(() => {
                             context.succeed(createResponse(200, 'Completed successfully'));
                         });
                     }
-                } else if (items.length == 1){
-                    if (!isNaN(reqText)) {
-                        replyText(repToken, "「" + reqText + "」じゃ何に使ったかわからん。ちゃんと教えてくれん？").then(() => {
-                            context.succeed(createResponse(200, 'Completed successfully'));
-                        });
-                    } else {
-                        if (reqText === "キャンセル") {
-                            cancel(userId, items[0].messageId).then(() => {
-                                return replyText(repToken, "キャンセルしたよ〜");
-                            }).then(() => {
-                                context.done(null);
-                            });
-                        } else {
-                            updateAndregisterKind(userId, items[0].messageId, reqText).then((kind) => {
-                                return replyText(repToken, "「" + kind + "」ね。分かった。登録したよ！");
-                            }).then(() => {
-                                context.done(null);
-                            });
-                        }
-                    } 
-                } else {
-                    replyText(repToken, "まだ用途を言ってないものあるよね？").then(() => {
-                        context.succeed(createResponse(200, 'Completed successfully'));
-                    });
-                }
-            })
-            .catch(() => {
-                console.log("失敗");
-            });
+                })
+                .catch(() => {
+                    console.log("失敗");
+                    context.done(null);
+                });
+            }
+            
         }
-        
     }
+    
 };
+
+// 合計金額リストのテキスト生成
+function createTotalText(total) {
+    let totalText = total.term + "は" + total.totalAmount + "円\n\n";
+    total.purposes.forEach((purpose) => {
+        totalText += purpose.kind + " : " + purpose.amount + "円\n";
+    });
+
+    if (total.totalAmount === 0) {
+        return totalText.slice(0, -2);
+    } else {
+        return totalText.slice(0, -1);
+    }    
+}
 
 // 返信処理
 function replyText(repToken, res) {
@@ -294,11 +309,11 @@ function getTotalAmount(userId, reqText) {
                 let total = {
                     term: date,
                     totalAmount: 0,
-                    purpose: []
+                    purposes: []
                 };
                 data.Items.forEach((item) => {
                     total.totalAmount += Number(item.purpose.amount);
-                    total.purpose.push({
+                    total.purposes.push({
                         amount: item.purpose.amount,
                         kind: item.purpose.kind
                     });
