@@ -77,10 +77,14 @@ exports.handler = (event, context) => {
                                 });
                             } else {
                                 updateAndregisterKind(userId, items[0].messageId, reqText).then((kind) => {
-                                    return replyText(repToken, "「" + kind + "」ね。分かった。登録したよ！");
-                                }).then(() => {
+                                    return getTotalAmount(userId, "今日");
+                                })
+                                .then((total) => {
+                                    return replyText(repToken, "「" + reqText + "」ね。分かった。登録したよ！\n\n" + createTotalText(total, "今日")); 
+                                })
+                                .then(() => {
                                     context.done(null);
-                                });
+                                })
                             }
                         } 
                     } else {
