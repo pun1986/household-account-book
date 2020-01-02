@@ -2,10 +2,11 @@ const aws = require('aws-sdk');
 var dynamo = new aws.DynamoDB.DocumentClient ({
     region: 'ap-northeast-1'
 });
-const dateUtils = require('date-utils');
+require('date-utils');
 const houseHold = "HouseHold";
 const LINE_TOKEN = process.env['LINE_TOKEN'];
 const BOT_ID = process.env['BOT_ID'];
+const terms = ["今日", "昨日", "今月", "先月"];
 
 const createResponse = (statusCode, body) => {
     return {
@@ -40,7 +41,7 @@ exports.handler = (event, context) => {
                 replyText(repToken, "これくらい全然いいよ♪").then(() => {
                     context.succeed(createResponse(200, 'Completed successfully'));
                 });
-            } else if (reqText === "今月" || reqText === "今日" || reqText == "先月") {
+            } else if (terms.includes(reqText)) {
                 getTotalAmount(userId, reqText).then((total) => {                   
                     replyText(repToken, createTotalText(total, reqText)).then(() => {
                         context.succeed(createResponse(200, 'Completed successfully'));
@@ -279,17 +280,20 @@ function getTotalAmount(userId, reqText) {
                 today.setMonth(month - 2);
                 date = today.toFormat("YYYY-MM");
                 break;
+            case "昨日":
+                const yesterday = Date.yesterday();
+                date = yesterday.toFormat("YYYY-MM-DD");
+                break;
             default:
                 date = today.getFullYear() + "-" + (today.getMonth() + 1);
                 break;
         }
-        console.log(date);
         const param = {
             TableName: houseHold,
             IndexName: "createAtIndex",
             ConsistentRead: false,
             KeyConditionExpression: "#userId = :userId and begins_with(#createAt, :createAt)",
-            FilterExpression: "#isComplete = :isComplete and #hasCancel = :hasCancel",
+            FilterExpression: "#isComplete = :isComplete and #hasCancel = :hasCancel and attribute_exists(purpose)",
             ExpressionAttributeNames: {
                 "#userId": "userId",
                 "#createAt": "createAt",
@@ -308,6 +312,7 @@ function getTotalAmount(userId, reqText) {
                 console.error(console.log("Unable to query item. Error JSON:", JSON.stringify(err, null, 2)));
                 reject();
             } else {
+                console.log(data.Items);
                 let total = {
                     term: date,
                     totalAmount: 0,
@@ -324,11 +329,9 @@ function getTotalAmount(userId, reqText) {
                 total.purposes.sort((a, b) => {
                     if (a.createAt > b.createAt) {
                         return -1;
-                      }
-                      else if (a.createAt < b.createAt) {
+                      } else if (a.createAt < b.createAt) {
                         return 1;
-                      }
-                      else {
+                      } else {
                         return 0;
                       }
                 });
