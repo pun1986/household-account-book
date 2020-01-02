@@ -41,6 +41,7 @@ exports.handler = (event, context) => {
                 replyText(repToken, "これくらい全然いいよ♪").then(() => {
                     context.succeed(createResponse(200, 'Completed successfully'));
                 });
+            //指定期間の合計金額
             } else if (terms.includes(reqText)) {
                 getTotalAmount(userId, reqText).then((total) => {                   
                     replyText(repToken, createTotalText(total, reqText)).then(() => {
@@ -312,7 +313,6 @@ function getTotalAmount(userId, reqText) {
                 console.error(console.log("Unable to query item. Error JSON:", JSON.stringify(err, null, 2)));
                 reject();
             } else {
-                console.log(data.Items);
                 let total = {
                     term: date,
                     totalAmount: 0,
@@ -320,11 +320,16 @@ function getTotalAmount(userId, reqText) {
                 };
                 data.Items.forEach((item) => {
                     total.totalAmount += Number(item.purpose.amount);
-                    total.purposes.push({
-                        amount: item.purpose.amount,
-                        kind: item.purpose.kind,
-                        createAt: item.purpose.createAt
-                    });
+                    const index = total.purposes.findIndex(purpose => purpose.kind === item.purpose.kind);
+                    if (index == -1) {
+                        total.purposes.push({
+                            amount: Number(item.purpose.amount),
+                            kind: item.purpose.kind,
+                            createAt: item.createAt
+                        });
+                    } else {
+                        total.purposes[index].amount += Number(item.purpose.amount);
+                    }
                 });
                 total.purposes.sort((a, b) => {
                     if (a.createAt > b.createAt) {
@@ -340,6 +345,7 @@ function getTotalAmount(userId, reqText) {
         });
     });
 }
+
 /*
 function replyPostBackAction(repToken) {
     return new Promise((resolve, reject) => {
