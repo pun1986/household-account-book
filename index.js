@@ -2,7 +2,7 @@ const aws = require('aws-sdk');
 var dynamo = new aws.DynamoDB.DocumentClient ({
     region: 'ap-northeast-1'
 });
-require('date-utils');
+const dateUtils = require('./dateUtils.js');
 const houseHold = "HouseHold";
 const LINE_TOKEN = process.env['LINE_TOKEN'];
 const BOT_ID = process.env['BOT_ID'];
@@ -192,7 +192,7 @@ function registerAmount(userId, messageId, reqText) {
          "Item": {
             "userId": userId,
             "messageId": messageId,
-            "createAt": new Date().toFormat("YYYY-MM-DD HH24:MI:SS"),
+            "createAt": dateUtils.date(""),
             "isComplete": 0,
             "hasCancel": 0,
             "purpose": {
@@ -223,7 +223,7 @@ function updateAndregisterKind(userId, messageId, kind) {
             ExpressionAttributeValues: {
                 ":isComplete": 1,
                 ":kind": kind,
-                ":createAt": new Date().toFormat("YYYY-MM-DD HH24:MI:SS")
+                ":createAt": dateUtils.date("")
             },
             ReturnValues:"UPDATED_NEW"
         };
@@ -270,29 +270,10 @@ function cancel(userId, messageId) {
 }
 
 function getTotalAmount(userId, reqText) {
+
     return new Promise((resolve, reject) => {
-        let date = "";
-        const today = new Date();
-        switch (reqText) {
-            case "今日":
-                date = today.toFormat("YYYY-MM-DD");
-                break;
-            case "今月":
-                date = today.toFormat("YYYY-MM");
-                break;
-            case "先月":
-                const month = today.getMonth() + 1;
-                today.setMonth(month - 2);
-                date = today.toFormat("YYYY-MM");
-                break;
-            case "昨日":
-                const yesterday = Date.yesterday();
-                date = yesterday.toFormat("YYYY-MM-DD");
-                break;
-            default:
-                date = today.getFullYear() + "-" + (today.getMonth() + 1);
-                break;
-        }
+
+        const date = dateUtils.date(reqText);
         const param = {
             TableName: houseHold,
             IndexName: "createAtIndex",
