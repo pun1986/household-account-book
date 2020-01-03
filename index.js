@@ -252,7 +252,7 @@ function cancel(userId, messageId) {
             ExpressionAttributeValues: {
                 ":isComplete": 1,
                 ":hasCancel": 1,
-                ":createAt": new Date().toFormat("YYYY-MM-DD HH24:MI:SS")
+                ":createAt": dateUtils.date("")
             },
             ReturnValues: "UPDATED_NEW"
         };
