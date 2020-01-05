@@ -304,9 +304,7 @@ function getTotalAmount(userId, reqText) {
                     purposes: []
                 };
                 data.Items.forEach((item) => {
-                    total.totalAmount += Number(item.purpose.amount);
                     const index = total.purposes.findIndex(purpose => purpose.kind === item.purpose.kind);
-
                     if (index == -1) {
                         total.purposes.push({
                             amount: Number(item.purpose.amount),
@@ -317,7 +315,10 @@ function getTotalAmount(userId, reqText) {
                         total.purposes[index].amount += Number(item.purpose.amount);
                     }
                 });
-                total.purposes.sort((a, b) => {
+                total.purposes = total.purposes.filter((purpose) => { 
+                    return purpose.amount > 0; 
+                })
+                .sort((a, b) => {
                     if (a.createAt > b.createAt) {
                         return -1;
                     } else if (a.createAt < b.createAt) {
@@ -325,6 +326,9 @@ function getTotalAmount(userId, reqText) {
                     } else {
                         return 0;
                     }
+                });
+                total.purposes.forEach((purpose) => {
+                    total.totalAmount += purpose.amount;
                 });
                 resolve(total);
             }
